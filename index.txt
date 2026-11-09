@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Star Wars: The Bad Batch - FPS</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+        body, html { width: 100%; height: 100%; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #050508; color: #fff; }
+        #canvas-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
+        
+        /* UI Overlay */
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 20px; }
+        
+        /* Lobby UI */
+        #lobby-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, rgba(10,12,18,0.95), rgba(5,5,8,0.98)); display: flex; flex-direction: column; z-index: 100; pointer-events: auto; }
+        .lobby-header { height: 70px; border-bottom: 2px solid #ff3b30; display: flex; align-items: center; justify-content: space-between; padding: 0 40px; background: rgba(0,0,0,0.5); }
+        .lobby-title { font-size: 28px; font-weight: 900; letter-spacing: 3px; color: #ff3b30; text-transform: uppercase; text-shadow: 0 0 10px rgba(255,59,48,0.5); }
+        .lobby-main { flex: 1; display: flex; padding: 30px; gap: 30px; }
+        .character-select { width: 320px; display: flex; flex-direction: column; gap: 12px; }
+        .char-btn { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 15px 20px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s; }
+        .char-btn:hover, .char-btn.active { background: rgba(255,59,48,0.2); border-color: #ff3b30; transform: translateX(5px); }
+        .char-btn .name { font-size: 18px; font-weight: bold; }
+        .char-btn .role { font-size: 12px; color: #aaa; }
+        
+        .preview-pane { flex: 1; background: rgba(0,0,0,0.3); border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; justify-content: flex-end; padding: 30px; position: relative; }
+        .char-info { max-width: 500px; z-index: 2; }
+        .char-info h1 { font-size: 42px; margin-bottom: 10px; color: #fff; }
+        .char-info p { color: #ccc; font-size: 14px; line-height: 1.6; margin-bottom: 20px; }
+        .char-stats { display: flex; gap: 20px; margin-bottom: 25px; }
+        .stat-box { background: rgba(0,0,0,0.5); padding: 10px 15px; border-radius: 6px; border-left: 3px solid #ff3b30; }
+        .stat-box label { font-size: 11px; color: #888; display: block; text-transform: uppercase; }
+        .stat-box span { font-size: 16px; font-weight: bold; }
+        
+        .start-btn { background: #ff3b30; color: #fff; border: none; padding: 18px 40px; font-size: 20px; font-weight: 800; border-radius: 8px; cursor: pointer; text-transform: uppercase; letter-spacing: 2px; transition: all 0.2s; box-shadow: 0 0 20px rgba(255,59,48,0.4); }
+        .start-btn:hover { background: #ff5247; transform: scale(1.03); box-shadow: 0 0 30px rgba(255,59,48,0.7); }
+
+        /* HUD elements */
+        #hud { display: none; width: 100%; height: 100%; position: absolute; top: 0; left: 0; pointer-events: none; }
+        .crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 20px; height: 20px; }
+        .crosshair::before, .crosshair::after { content: ''; position: absolute; background: rgba(255,255,255,0.7); }
+        .crosshair::before { top: 9px; left: 0; width: 20px; height: 2px; }
+        .crosshair::after { top: 0; left: 9px; width: 2px; height: 20px; }
+        .crosshair-dot { position: absolute; top: 8px; left: 8px; width: 4px; height: 4px; background: #ff3b30; border-radius: 50%; }
+
+        /* Sniper Scope Overlay */
+        .sniper-scope { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: radial-gradient(circle at center, transparent 30%, rgba(0,0,0,0.95) 60%, black 100%); pointer-events: none; z-index: 50; }
+        .sniper-scope::before { content: ''; position: absolute; top: 0; left: 50%; width: 1px; height: 100%; background: rgba(0,255,0,0.4); }
+        .sniper-scope::after { content: ''; position: absolute; top: 50%; left: 0; width: 100%; height: 1px; background: rgba(0,255,0,0.4); }
+        .scope-ring { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 45vh; height: 45vh; border: 2px solid rgba(0,255,0,0.3); border-radius: 50%; }
+
+        .player-status { position: absolute; bottom: 30px; left: 30px; display: flex; flex-direction: column; gap: 10px; }
+        .hp-bar-bg { width: 250px; height: 14px; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; overflow: hidden; }
+        .hp-bar-fill { width: 100%; height: 100%; background: linear-gradient(90deg, #ff3b30, #ff7b00); transition: width 0.1s; }
+        .ammo-display { font-size: 36px; font-weight: 900; color: #fff; text-shadow: 0 0 10px rgba(0,0,0,0.8); }
+        
+        .controls-hint { position: absolute; top: 20px; right: 20px; background: rgba(0,0,0,0.5); padding: 12px 18px; border-radius: 8px; font-size: 12px; color: #aaa; border: 1px solid rgba(255,255,255,0.1); }
+        
+        /* Game Over Screen */
+        #game-over { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); flex-direction: column; align-items: center; justify-content: center; z-index: 200; pointer-events: auto; }
+        #game-over h1 { font-size: 64px; color: #ff3b30; margin-bottom: 20px; }
+        #game-over button { padding: 15px 30px; background: #fff; border: none; font-weight: bold; cursor: pointer; border-radius: 6px; font-size: 18px; }
+    </style>
+    <!-- Three.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <div id="canvas-container"></div>
+
+    <!-- Lobby UI -->
+    <div id="lobby-screen">
+        <div class="lobby-header">
+            <div class="lobby-title">BAD BATCH: TACTICAL FPS</div>
+            <div style="font-size: 14px; color: #888;">HAZMOB ENGINE v2.5</div>
+        </div>
+        <div class="lobby-main">
+            <div class="character-select">
+                <div class="char-btn active" onclick="selectChar('hunter')">
+                    <div>
+                        <div class="name">HUNTER</div>
+                        <div class="role">Leader / Tracker</div>
+                    </div>
+                </div>
+                <div class="char-btn" onclick="selectChar('wrecker')">
+                    <div>
+                        <div class="name">WRECKER</div>
+                        <div class="role">Demolitions / Tank</div>
+                    </div>
+                </div>
+                <div class="char-btn" onclick="selectChar('tech')">
+                    <div>
+                        <div class="name">TECH</div>
+                        <div class="role">Intel / Specialist</div>
+                    </div>
+                </div>
+                <div class="char-btn" onclick="selectChar('crosshair')">
+                    <div>
+                        <div class="name">CROSSHAIR</div>
+                        <div class="role">Marksman / Sniper</div>
+                    </div>
+                </div>
+                <div class="char-btn" onclick="selectChar('echo')">
+                    <div>
+                        <div class="name">ECHO</div>
+                        <div class="role">Cybernetic / Support</div>
+                    </div>
+                </div>
+            </div>
+            <div class="preview-pane">
+                <div class="char-info">
+                    <h1 id="char-name">HUNTER</h1>
+                    <p id="char-desc">Leader of Clone Force 99. Features enhanced sensory abilities and deadly close-quarters combat skills with his Vibroblade.</p>
+                    <div class="char-stats">
+                        <div class="stat-box"><label>WEAPON</label><span id="stat-weapon">Dual DC-17</span></div>
+                        <div class="stat-box"><label>DAMAGE</label><span id="stat-dmg">35</span></div>
+                        <div class="stat-box"><label>FIRE RATE</label><span id="stat-rate">Fast</span></div>
+                    </div>
+                    <button class="start-btn" onclick="startGame()">DEPLOY TO BATTLE</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- In-Game HUD -->
+    <div id="hud">
+        <div class="crosshair" id="crosshair"><div class="crosshair-dot"></div></div>
+        <div class="sniper-scope" id="sniper-scope"><div class="scope-ring"></div></div>
+        <div class="player-status">
+            <div class="hp-bar-bg"><div class="hp-bar-fill" id="hp-fill"></div></div>
+            <div class="ammo-display"><span id="ammo-count">30</span> / <span id="ammo-max">30</span></div>
+        </div>
+        <div class="controls-hint">
+            WASD: Move | SHIFT: Sprint | SPACE: Jump<br>
+            MOUSE 1: Fire | MOUSE 2 (Hold): ADS Zoom<br>
+            V: Toggle Camera View (FPP / TPP)
+        </div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="game-over">
+        <h1>MISSION FAILED</h1>
+        <p style="margin-bottom: 20px; color: #aaa;">You were overrun by B1 Battle Droids.</p>
+        <button onclick="restartGame()">RETURN TO LOBBY</button>
+    </div>
+
+    <script>
+        // Data Configuration
+        const CHARACTERS = {
+            hunter: { name: 'HUNTER', desc: 'Leader of Clone Force 99 with enhanced senses and Vibroblade blitz capability.', weapon: 'DC-17 Blaster', dmg: 35, rate: 'Medium', maxAmmo: 30, color: 0x4a4d52 },
+            wrecker: { name: 'WRECKER', desc: 'Heavy demolitionist equipped with Boomer Cannon and massive physical strength.', weapon: 'Boomer Cannon', dmg: 75, rate: 'Slow', maxAmmo: 15, color: 0x5a554c },
+            tech: { name: 'TECH', desc: 'Tactical genius utilizing rapid-fire dual burst blasters and tactical HUD scanners.', weapon: 'Burst Blaster', dmg: 22, rate: 'Very Fast', maxAmmo: 45, color: 0x6e757d },
+            crosshair: { name: 'CROSSHAIR', desc: 'Master marksman using the 773 Firepunch Sniper Rifle for lethal long-range precision.', weapon: '773 Firepunch', dmg: 120, rate: 'Sniper', maxAmmo: 6, color: 0x33363a },
+            echo: { name: 'ECHO', desc: 'Cybernetic soldier with integrated arm blaster and EMP pulse technology.', weapon: 'Arm Blaster', dmg: 40, rate: 'Fast', maxAmmo: 25, color: 0x505866 }
+        };
+
+        let selectedChar = 'hunter';
+        let scene, camera, renderer, clock;
+        let player, playerBody, weaponGroup;
+        let droids = [], lasers = [];
+        let isGameRunning = false;
+        let isTPP = false;
+        let isADS = false;
+
+        // Player Controls state
+        const keys = { w: false, a: false, s: false, d: false, shift: false, space: false };
+        let moveSpeed = 8, velocityY = 0, isGrounded = true;
+        let yaw = 0, pitch = 0;
+        let hp = 100, ammo = 30;
+
+        // Sound Audio Context
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playLaserSound(isEnemy = false) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(isEnemy ? 400 : 800, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.15);
+            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.15);
+        }
+
+        function selectChar(id) {
+            selectedChar = id;
+            document.querySelectorAll('.char-btn').forEach(btn => btn.classList.remove('active'));
+            event.currentTarget.classList.add('active');
+            const data = CHARACTERS[id];
+            document.getElementById('char-name').innerText = data.name;
+            document.getElementById('char-desc').innerText = data.desc;
+            document.getElementById('stat-weapon').innerText = data.weapon;
+            document.getElementById('stat-dmg').innerText = data.dmg;
+            document.getElementById('stat-rate').innerText = data.rate;
+        }
+
+        function initThree() {
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0c10);
+            scene.fog = new THREE.FogExp2(0x0a0c10, 0.015);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            clock = new THREE.Clock();
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffeedd, 0.8);
+            dirLight.position.set(50, 100, 50);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            scene.add(dirLight);
+
+            // Environment Floor
+            const floorGeo = new THREE.PlaneGeometry(200, 200);
+            const floorMat = new THREE.MeshStandardMaterial({ color: 0x1e222b, roughness: 0.8 });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            // Outpost Obstacles
+            const boxGeo = new THREE.BoxGeometry(4, 4, 4);
+            const boxMat = new THREE.MeshStandardMaterial({ color: 0x3a3f4d });
+            for (let i = 0; i < 20; i++) {
+                const box = new THREE.Mesh(boxGeo, boxMat);
+                box.position.set((Math.random() - 0.5) * 120, 2, (Math.random() - 0.5) * 120);
+                box.castShadow = true;
+                box.receiveShadow = true;
+                scene.add(box);
+            }
+
+            // Player Group Setup
+            player = new THREE.Group();
+            scene.add(player);
+            player.position.set(0, 0, 0);
+
+            buildPlayerModel();
+            spawnDroids(6);
+
+            window.addEventListener('resize', onWindowResize);
+            setupInput();
+        }
+
+        // Detailed Player Model Construction
+        function buildPlayerModel() {
+            if (playerBody) player.remove(playerBody);
+            playerBody = new THREE.Group();
+
+            const mat = new THREE.MeshStandardMaterial({ color: CHARACTERS[selectedChar].color, roughness: 0.5 });
+            const armorMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.3 });
+
+            // Torso
+            const torso = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.2, 0.5), mat);
+            torso.position.y = 1.4;
+            torso.castShadow = true;
+            playerBody.add(torso);
+
+            // Helmet
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 16), mat);
+            head.position.y = 2.2;
+            head.castShadow = true;
+            
+            // Visor
+            const visor = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.12, 0.2), new THREE.MeshBasicMaterial({ color: 0x00e5ff }));
+            visor.position.set(0, 2.22, 0.25);
+            playerBody.add(visor);
+            playerBody.add(head);
+
+            // 773 Firepunch Rifle Mesh for Crosshair / Generic Weapons
+            weaponGroup = new THREE.Group();
+            const bodyGeo = new THREE.BoxGeometry(0.1, 0.15, 1.2);
+            const bodyMesh = new THREE.Mesh(bodyGeo, armorMat);
+            
+            const barrelGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.8);
+            const barrelMesh = new THREE.Mesh(barrelGeo, armorMat);
+            barrelMesh.rotation.x = Math.PI / 2;
+            barrelMesh.position.set(0, 0.02, -0.8);
+
+            const scopeGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.3);
+            const scopeMesh = new THREE.Mesh(scopeGeo, armorMat);
+            scopeMesh.rotation.x = Math.PI / 2;
+            scopeMesh.position.set(0, 0.12, -0.2);
+
+            weaponGroup.add(bodyMesh, barrelMesh, scopeMesh);
+            weaponGroup.position.set(0.4, 1.3, -0.5);
+            player.add(weaponGroup);
+
+            player.add(playerBody);
+        }
+
+        // B1 Battle Droid Mesh Generator based on references
+        function createB1Droid() {
+            const droid = new THREE.Group();
+            const tanMat = new THREE.MeshStandardMaterial({ color: 0xc2a675, roughness: 0.6 });
+            const darkMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+
+            // Head (Cone structure)
+            const head = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.5, 8), tanMat);
+            head.rotation.x = Math.PI / 3;
+            head.position.set(0, 1.7, 0.1);
+            droid.add(head);
+
+            // Torso & Backpack
+            const torso = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.6, 0.2), tanMat);
+            torso.position.y = 1.2;
+            
+            const pack = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.4, 0.25), tanMat);
+            pack.position.set(0, 1.3, -0.2);
+
+            const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.8), darkMat);
+            antenna.position.set(0.12, 1.7, -0.3);
+            
+            droid.add(torso, pack, antenna);
+
+            // Thin Limbs
+            const legGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.8);
+            const leftLeg = new THREE.Mesh(legGeo, tanMat);
+            leftLeg.position.set(-0.15, 0.4, 0);
+            const rightLeg = new THREE.Mesh(legGeo, tanMat);
+            rightLeg.position.set(0.15, 0.4, 0);
+            droid.add(leftLeg, rightLeg);
+
+            droid.castShadow = true;
+            return droid;
+        }
+
+        function spawnDroids(count) {
+            for (let i = 0; i < count; i++) {
+                const d = createB1Droid();
+                d.position.set((Math.random() - 0.5) * 80, 0, (Math.random() - 0.5) * 80);
+                d.userData = { hp: 50, lastShoot: 0 };
+                scene.add(d);
+                droids.push(d);
+            }
+        }
+
+        function setupInput() {
+            document.addEventListener('keydown', (e) => {
+                if (e.key.toLowerCase() in keys) keys[e.key.toLowerCase()] = true;
+                if (e.key === ' ') keys.space = true;
+                if (e.shiftKey) keys.shift = true;
+                if (e.key.toLowerCase() === 'v') toggleView();
+            });
+
+            document.addEventListener('keyup', (e) => {
+                if (e.key.toLowerCase() in keys) keys[e.key.toLowerCase()] = false;
+                if (e.key === ' ') keys.space = false;
+            });
+
+            document.addEventListener('mousedown', (e) => {
+                if (!isGameRunning) return;
+                if (e.button === 0) shoot();
+                if (e.button === 2) setADS(true);
+            });
+
+            document.addEventListener('mouseup', (e) => {
+                if (e.button === 2) setADS(false);
+            });
+
+            document.addEventListener('contextmenu', e => e.preventDefault());
+
+            document.addEventListener('mousemove', (e) => {
+                if (document.pointerLockElement === document.body) {
+                    const sens = isADS ? 0.001 : 0.0025;
+                    yaw -= e.movementX * sens;
+                    pitch -= e.movementY * sens;
+                    pitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, pitch));
+                }
+            });
+        }
+
+        function toggleView() {
+            isTPP = !isTPP;
+            playerBody.visible = isTPP;
+        }
+
+        function setADS(active) {
+            isADS = active;
+            const scopeEl = document.getElementById('sniper-scope');
+            const crosshairEl = document.getElementById('crosshair');
+
+            if (selectedChar === 'crosshair' && isADS) {
+                scopeEl.style.display = 'block';
+                crosshairEl.style.display = 'none';
+                weaponGroup.visible = false;
+                if (!isTPP) playerBody.visible = false;
+            } else {
+                scopeEl.style.display = 'none';
+                crosshairEl.style.display = 'block';
+                weaponGroup.visible = true;
+            }
+        }
+
+        function shoot() {
+            if (ammo <= 0) return;
+            ammo--;
+            document.getElementById('ammo-count').innerText = ammo;
+            playLaserSound(false);
+
+            // Create Player Laser Bolt
+            const laserGeo = new THREE.CylinderGeometry(0.03, 0.03, 1);
+            const laserMat = new THREE.MeshBasicMaterial({ color: 0x00aaff });
+            const laser = new THREE.Mesh(laserGeo, laserMat);
+            laser.rotation.x = Math.PI / 2;
+
+            const dir = new THREE.Vector3();
+            camera.getWorldDirection(dir);
+            laser.position.copy(camera.position).add(dir.clone().multiplyScalar(1));
+            laser.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), dir);
+
+            scene.add(laser);
+            lasers.push({ mesh: laser, dir: dir, life: 1.5, isEnemy: false });
+
+            // Raycast Hit Detection
+            const raycaster = new THREE.Raycaster(camera.position, dir);
+            const hits = raycaster.intersectObjects(droids, true);
+
+            if (hits.length > 0) {
+                let hitDroid = hits[0].object;
+                while (hitDroid.parent && hitDroid.parent !== scene) hitDroid = hitDroid.parent;
+
+                hitDroid.userData.hp -= CHARACTERS[selectedChar].dmg;
+                if (hitDroid.userData.hp <= 0) {
+                    scene.remove(hitDroid);
+                    droids = droids.filter(d => d !== hitDroid);
+                    setTimeout(() => spawnDroids(1), 3000); // Respawn
+                }
+            }
+        }
+
+        function startGame() {
+            document.getElementById('lobby-screen').style.display = 'none';
+            document.getElementById('hud').style.display = 'block';
+            document.body.requestPointerLock();
+            
+            ammo = CHARACTERS[selectedChar].maxAmmo;
+            document.getElementById('ammo-max').innerText = ammo;
+            document.getElementById('ammo-count').innerText = ammo;
+            
+            buildPlayerModel();
+            isGameRunning = true;
+            
+            if (!clock.running) {
+                initThree();
+                animate();
+            }
+        }
+
+        function restartGame() {
+            document.getElementById('game-over').style.display = 'none';
+            document.getElementById('lobby-screen').style.display = 'flex';
+            hp = 100;
+            document.getElementById('hp-fill').style.width = '100%';
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+
+            if (isGameRunning) {
+                // Update Player Orientation
+                player.rotation.y = yaw;
+                camera.rotation.x = pitch;
+
+                // Physics & Movement
+                const moveDir = new THREE.Vector3();
+                if (keys.w) moveDir.z -= 1;
+                if (keys.s) moveDir.z += 1;
+                if (keys.a) moveDir.x -= 1;
+                if (keys.d) moveDir.x += 1;
+                moveDir.normalize();
+
+                const currentSpeed = keys.shift ? moveSpeed * 1.6 : moveSpeed;
+                player.translateX(moveDir.x * currentSpeed * delta);
+                player.translateZ(moveDir.z * currentSpeed * delta);
+
+                // Camera Position Attachment
+                if (isTPP) {
+                    const offset = new THREE.Vector3(0, 2.2, 4).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+                    camera.position.copy(player.position).add(offset);
+                    camera.rotation.y = yaw;
+                } else {
+                    camera.position.copy(player.position).add(new THREE.Vector3(0, 1.8, 0));
+                    camera.rotation.y = yaw;
+                }
+
+                // Camera FOV Zoom for ADS
+                const targetFOV = isADS ? (selectedChar === 'crosshair' ? 20 : 45) : 75;
+                camera.fov = THREE.MathUtils.lerp(camera.fov, targetFOV, delta * 12);
+                camera.updateProjectionMatrix();
+
+                // Update Lasers
+                for (let i = lasers.length - 1; i >= 0; i--) {
+                    const l = lasers[i];
+                    l.mesh.position.add(l.dir.clone().multiplyScalar(60 * delta));
+                    l.life -= delta;
+                    if (l.life <= 0) {
+                        scene.remove(l.mesh);
+                        lasers.splice(i, 1);
+                    }
+                }
+
+                // B1 Droid AI Logic
+                droids.forEach(droid => {
+                    const dist = droid.position.distanceTo(player.position);
+                    droid.lookAt(player.position.x, droid.position.y, player.position.z);
+
+                    if (dist > 5 && dist < 40) {
+                        droid.translateZ(3 * delta);
+                    }
+
+                    // Droid Fire Rate Loop
+                    if (dist < 30 && performance.now() - droid.userData.lastShoot > 2000) {
+                        droid.userData.lastShoot = performance.now();
+                        playLaserSound(true);
+
+                        const laserGeo = new THREE.CylinderGeometry(0.03, 0.03, 1);
+                        const laserMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+                        const laser = new THREE.Mesh(laserGeo, laserMat);
+                        laser.rotation.x = Math.PI / 2;
+
+                        const dir = new THREE.Vector3().subVectors(player.position, droid.position).normalize();
+                        laser.position.copy(droid.position).add(new THREE.Vector3(0, 1.4, 0));
+                        laser.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), dir);
+
+                        scene.add(laser);
+                        lasers.push({ mesh: laser, dir: dir, life: 1.5, isEnemy: true });
+
+                        // Damage Player
+                        if (dist < 25) {
+                            hp -= 8;
+                            document.getElementById('hp-fill').style.width = Math.max(0, hp) + '%';
+                            if (hp <= 0) {
+                                isGameRunning = false;
+                                document.exitPointerLock();
+                                document.getElementById('game-over').style.display = 'flex';
+                            }
+                        }
+                    }
+                });
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+    </script>
+</body>
+</html>
